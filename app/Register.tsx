@@ -1,16 +1,20 @@
+import { router } from "expo-router";
+import { createUserWithEmailAndPassword } from "firebase/auth";
+import { doc, setDoc } from "firebase/firestore";
 import { useState } from "react";
 import {
-    ActivityIndicator,
-    KeyboardAvoidingView,
-    Platform,
-    SafeAreaView,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
+import { auth, db } from "../lib/firebase";
 
 export default function RegisterScreen() {
   const [form, setForm] = useState({
@@ -32,17 +36,53 @@ export default function RegisterScreen() {
   async function handleSubmit() {
     setError("");
 
+    // Validaciones básicas
+    if (!form.nombre || !form.apellido || !form.correo || !form.password) {
+      setError("Por favor completa todos los campos obligatorios.");
+      return;
+    }
     if (!form.sexo) {
       setError("Por favor selecciona un sexo.");
       return;
     }
 
     setLoading(true);
+    try {
+      // 1. Crear usuario en Firebase Auth
+      const userCredential = await createUserWithEmailAndPassword(
+        auth,
+        form.correo,
+        form.password
+      );
+      const uid = userCredential.user.uid;
 
-    // TODO: hook up Firebase auth + Firestore here
-    console.log("Registrando:", form);
+      // 2. Guardar datos adicionales en Firestore
+      await setDoc(doc(db, "usuarios", uid), {
+        nombre: form.nombre,
+        apellido: form.apellido,
+        telefono: form.telefono,
+        correo: form.correo,
+        fecha_nacimiento: form.fecha_nacimiento,
+        sexo: form.sexo,
+        creado_en: new Date().toISOString(),
+      });
 
-    setLoading(false);
+      // 3. Redirigir al login o a la app
+      router.replace("/");
+    } catch (e: any) {
+      // Traducir errores comunes de Firebase
+      if (e.code === "auth/email-already-in-use") {
+        setError("Este correo ya está registrado.");
+      } else if (e.code === "auth/weak-password") {
+        setError("La contraseña debe tener al menos 6 caracteres.");
+      } else if (e.code === "auth/invalid-email") {
+        setError("El correo electrónico no es válido.");
+      } else {
+        setError("Ocurrió un error al registrarse. Intenta de nuevo.");
+      }
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
@@ -145,7 +185,7 @@ export default function RegisterScreen() {
               ¿Ya tienes cuenta?{" "}
               <Text
                 style={styles.loginLink}
-                onPress={() => console.log("Ir a login")} // TODO: router.replace("/login")
+                onPress={() => router.replace("/Login")}
               >
                 Ingresar
               </Text>
