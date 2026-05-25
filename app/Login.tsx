@@ -1,3 +1,4 @@
+import { router } from "expo-router";
 import { signInWithEmailAndPassword } from "firebase/auth";
 import { useState } from "react";
 import {
@@ -12,8 +13,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { auth } from "../../lib/firebase";
-
+import { auth } from "../lib/firebase";
 export default function LoginScreen() {
   const [form, setForm] = useState({ correo: "", password: "" });
   const [error, setError] = useState("");
@@ -34,7 +34,7 @@ export default function LoginScreen() {
 
       // Aquí podrías navegar al Dashboard
       // Ejemplo con expo-router:
-      // router.push("/DashboardPage");
+      router.replace("/(tabs)");
       // Ejemplo con react-navigation:
       // navigation.navigate("Dashboard");
     } catch (err: any) {
