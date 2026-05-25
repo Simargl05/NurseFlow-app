@@ -14,6 +14,7 @@ import {
   View,
 } from "react-native";
 import { auth } from "../lib/firebase";
+
 export default function LoginScreen() {
   const [form, setForm] = useState({ correo: "", password: "" });
   const [error, setError] = useState("");
@@ -32,11 +33,7 @@ export default function LoginScreen() {
       const user = userCredential.user;
       console.log("Usuario autenticado:", user.email);
 
-      // Aquí podrías navegar al Dashboard
-      // Ejemplo con expo-router:
-      router.replace("/(tabs)");
-      // Ejemplo con react-navigation:
-      // navigation.navigate("Dashboard");
+      router.replace("/(tabs)/DashboardPage");
     } catch (err: any) {
       console.error("Error en login:", err);
       setError("Correo o contraseña incorrectos");
@@ -92,7 +89,7 @@ export default function LoginScreen() {
               ¿No tienes cuenta?{" "}
               <Text
                 style={styles.registerLink}
-                onPress={() => console.log("Ir a registro")}
+                onPress={() => router.push("/Register")}
               >
                 Registrarse
               </Text>
