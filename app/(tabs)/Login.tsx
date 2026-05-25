@@ -1,16 +1,18 @@
+import { signInWithEmailAndPassword } from "firebase/auth";
 import { useState } from "react";
 import {
-    ActivityIndicator,
-    KeyboardAvoidingView,
-    Platform,
-    SafeAreaView,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
+import { auth } from "../../lib/firebase";
 
 export default function LoginScreen() {
   const [form, setForm] = useState({ correo: "", password: "" });
@@ -21,10 +23,26 @@ export default function LoginScreen() {
     setError("");
     setLoading(true);
 
-    // TODO: hook up Firebase auth here
-    console.log("Login con:", form.correo, form.password);
+    try {
+      const userCredential = await signInWithEmailAndPassword(
+        auth,
+        form.correo,
+        form.password
+      );
+      const user = userCredential.user;
+      console.log("Usuario autenticado:", user.email);
 
-    setLoading(false);
+      // Aquí podrías navegar al Dashboard
+      // Ejemplo con expo-router:
+      // router.push("/DashboardPage");
+      // Ejemplo con react-navigation:
+      // navigation.navigate("Dashboard");
+    } catch (err: any) {
+      console.error("Error en login:", err);
+      setError("Correo o contraseña incorrectos");
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
@@ -33,14 +51,9 @@ export default function LoginScreen() {
         behavior={Platform.OS === "ios" ? "padding" : "height"}
         style={{ flex: 1 }}
       >
-        <ScrollView
-          contentContainerStyle={styles.scroll}
-          keyboardShouldPersistTaps="handled"
-        >
-          {/* Header */}
+        <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
           <Text style={styles.headerTitle}>NurseFlow, cuidado continuo</Text>
 
-          {/* Card */}
           <View style={styles.card}>
             <SmallLogo />
 
@@ -79,7 +92,7 @@ export default function LoginScreen() {
               ¿No tienes cuenta?{" "}
               <Text
                 style={styles.registerLink}
-                onPress={() => console.log("Ir a registro")} // TODO: router.push("/register")
+                onPress={() => console.log("Ir a registro")}
               >
                 Registrarse
               </Text>
