@@ -12,17 +12,35 @@ import {
     View,
 } from "react-native";
 
-export default function LoginScreen() {
-  const [form, setForm] = useState({ correo: "", password: "" });
+export default function RegisterScreen() {
+  const [form, setForm] = useState({
+    nombre: "",
+    apellido: "",
+    telefono: "",
+    correo: "",
+    password: "",
+    fecha_nacimiento: "",
+    sexo: "",
+  });
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
+  function setField(key: keyof typeof form, value: string) {
+    setForm((prev) => ({ ...prev, [key]: value }));
+  }
+
   async function handleSubmit() {
     setError("");
+
+    if (!form.sexo) {
+      setError("Por favor selecciona un sexo.");
+      return;
+    }
+
     setLoading(true);
 
-    // TODO: hook up Firebase auth here
-    console.log("Login con:", form.correo, form.password);
+    // TODO: hook up Firebase auth + Firestore here
+    console.log("Registrando:", form);
 
     setLoading(false);
   }
@@ -37,28 +55,76 @@ export default function LoginScreen() {
           contentContainerStyle={styles.scroll}
           keyboardShouldPersistTaps="handled"
         >
-          {/* Header */}
-          <Text style={styles.headerTitle}>NurseFlow, cuidado continuo</Text>
+          <Text style={styles.headerTitle}>
+            Flujo de enfermería, cuidado continuo
+          </Text>
 
-          {/* Card */}
           <View style={styles.card}>
             <SmallLogo />
 
             <FormField
+              label="NOMBRE"
+              placeholder="Ingresa tu nombre(s)"
+              value={form.nombre}
+              onChangeText={(v) => setField("nombre", v)}
+            />
+            <FormField
+              label="APELLIDO"
+              placeholder="Ingresa tus apellidos"
+              value={form.apellido}
+              onChangeText={(v) => setField("apellido", v)}
+            />
+            <FormField
+              label="NÚMERO CELULAR O TELÉFONO"
+              placeholder="Ingresa tu número de celular o teléfono"
+              value={form.telefono}
+              onChangeText={(v) => setField("telefono", v)}
+              keyboardType="phone-pad"
+            />
+            <FormField
               label="CORREO"
               placeholder="Ingresa tu correo electrónico"
               value={form.correo}
-              onChangeText={(v) => setForm((p) => ({ ...p, correo: v }))}
+              onChangeText={(v) => setField("correo", v)}
               keyboardType="email-address"
               autoCapitalize="none"
             />
             <FormField
               label="CONTRASEÑA"
-              placeholder="Ingresa tu contraseña"
+              placeholder="Ingresa una contraseña"
               value={form.password}
-              onChangeText={(v) => setForm((p) => ({ ...p, password: v }))}
+              onChangeText={(v) => setField("password", v)}
               secureTextEntry
             />
+
+            <View style={styles.fieldWrapper}>
+              <Text style={styles.fieldLabel}>FECHA DE NACIMIENTO</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="AAAA-MM-DD"
+                placeholderTextColor="#9ab4c4"
+                value={form.fecha_nacimiento}
+                onChangeText={(v) => setField("fecha_nacimiento", v)}
+                keyboardType="numeric"
+                maxLength={10}
+              />
+            </View>
+
+            <View style={styles.fieldWrapper}>
+              <View style={styles.radioRow}>
+                <RadioButton
+                  label="Femenino"
+                  selected={form.sexo === "Femenino"}
+                  onPress={() => setField("sexo", "Femenino")}
+                />
+                <RadioButton
+                  label="Masculino"
+                  selected={form.sexo === "Masculino"}
+                  onPress={() => setField("sexo", "Masculino")}
+                />
+              </View>
+              <Text style={styles.fieldLabel}>SEXO</Text>
+            </View>
 
             {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
@@ -71,17 +137,17 @@ export default function LoginScreen() {
               {loading ? (
                 <ActivityIndicator color="#fff" />
               ) : (
-                <Text style={styles.buttonText}>Ingresar</Text>
+                <Text style={styles.buttonText}>Registrarse</Text>
               )}
             </TouchableOpacity>
 
-            <Text style={styles.registerText}>
-              ¿No tienes cuenta?{" "}
+            <Text style={styles.loginText}>
+              ¿Ya tienes cuenta?{" "}
               <Text
-                style={styles.registerLink}
-                onPress={() => console.log("Ir a registro")} // TODO: router.push("/register")
+                style={styles.loginLink}
+                onPress={() => console.log("Ir a login")} // TODO: router.replace("/login")
               >
-                Registrarse
+                Ingresar
               </Text>
             </Text>
           </View>
@@ -98,7 +164,7 @@ function FormField({
   onChangeText,
   secureTextEntry = false,
   keyboardType = "default",
-  autoCapitalize = "sentences",
+  autoCapitalize = "words",
 }: {
   label: string;
   placeholder: string;
@@ -123,6 +189,25 @@ function FormField({
         autoCorrect={false}
       />
     </View>
+  );
+}
+
+function RadioButton({
+  label,
+  selected,
+  onPress,
+}: {
+  label: string;
+  selected: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <TouchableOpacity style={styles.radioOption} onPress={onPress} activeOpacity={0.7}>
+      <View style={[styles.radioCircle, selected && styles.radioCircleSelected]}>
+        {selected && <View style={styles.radioDot} />}
+      </View>
+      <Text style={styles.radioLabel}>{label}</Text>
+    </TouchableOpacity>
   );
 }
 
@@ -201,6 +286,38 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: "#111827",
   },
+  radioRow: {
+    flexDirection: "row",
+    gap: 24,
+    marginBottom: 6,
+  },
+  radioOption: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  radioCircle: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 2,
+    borderColor: "#9ab4c4",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  radioCircleSelected: {
+    borderColor: "#1a3a5c",
+  },
+  radioDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: "#1a3a5c",
+  },
+  radioLabel: {
+    fontSize: 14,
+    color: "#374151",
+  },
   errorText: {
     color: "#dc2626",
     fontSize: 13,
@@ -221,13 +338,13 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "600",
   },
-  registerText: {
+  loginText: {
     textAlign: "center",
     fontSize: 13,
     color: "#6b7280",
     marginTop: 16,
   },
-  registerLink: {
+  loginLink: {
     color: "#2563eb",
     textDecorationLine: "underline",
   },
