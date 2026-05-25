@@ -1,6 +1,8 @@
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
+import { signOut } from "firebase/auth";
 import {
+  Alert,
   SafeAreaView,
   ScrollView,
   StyleSheet,
@@ -8,6 +10,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { auth } from "../../lib/firebase";
 
 // ─── Mock data ─────────────────────────────────────────────────────────────────
 
@@ -46,9 +49,9 @@ const MOCK_PACIENTES: Paciente[] = [
 ];
 
 const ACTIVIDAD_RECIENTE = [
-  { id: "1", icon: "medkit",   titulo: "Medicamento administrado", sub: "Paciente 204 — 08:00 AM" },
-  { id: "2", icon: "pulse",    titulo: "Saturación baja",          sub: "Paciente 112 — hace 10 min" },
-  { id: "3", icon: "refresh",  titulo: "Preparar enlace de turno", sub: "Área de urgencias" },
+  { id: "1", icon: "medkit",  titulo: "Medicamento administrado", sub: "Paciente 204 — 08:00 AM" },
+  { id: "2", icon: "pulse",   titulo: "Saturación baja",          sub: "Paciente 112 — hace 10 min" },
+  { id: "3", icon: "refresh", titulo: "Preparar enlace de turno", sub: "Área de urgencias" },
 ];
 
 const SEMAFORO: Record<EstadoSemaforo, { color: string }> = {
@@ -58,16 +61,34 @@ const SEMAFORO: Record<EstadoSemaforo, { color: string }> = {
 };
 
 const ACCESOS = [
-  { label: "Pacientes", icon: "people",         color: "#3b82f6", bg: "#1e3a5f", route: "/(tabs)/pacientes" },
-  { label: "Turnos",    icon: "time",            color: "#22c55e", bg: "#14382a", route: "/(tabs)/turnos" },
-  { label: "Alertas",   icon: "warning",         color: "#f59e0b", bg: "#3b2f10", route: "/(tabs)/alertas" },
-  { label: "Reportes",  icon: "document-text",   color: "#ef4444", bg: "#3b1414", route: "/(tabs)/reportes" },
+  { label: "Pacientes", icon: "people",       color: "#3b82f6", bg: "#1e3a5f", route: "/(tabs)/pacientes" },
+  { label: "Turnos",    icon: "time",          color: "#22c55e", bg: "#14382a", route: "/(tabs)/turnos" },
+  { label: "Alertas",   icon: "warning",       color: "#f59e0b", bg: "#3b2f10", route: "/(tabs)/alertas" },
+  { label: "Reportes",  icon: "document-text", color: "#ef4444", bg: "#3b1414", route: "/(tabs)/reportes" },
 ];
 
 // ─── Main dashboard ────────────────────────────────────────────────────────────
 
 export default function DashboardScreen() {
   const criticos = MOCK_PACIENTES.filter((p) => p.estado === "rojo").length;
+
+  async function handleSignOut() {
+    Alert.alert(
+      "Cerrar sesión",
+      "¿Estás seguro que deseas cerrar sesión?",
+      [
+        { text: "Cancelar", style: "cancel" },
+        {
+          text: "Cerrar sesión",
+          style: "destructive",
+          onPress: async () => {
+            await signOut(auth);
+            router.replace("/Login");
+          },
+        },
+      ]
+    );
+  }
 
   return (
     <SafeAreaView style={s.safeArea}>
@@ -83,6 +104,9 @@ export default function DashboardScreen() {
           </TouchableOpacity>
           <TouchableOpacity style={s.headerIcon}>
             <Ionicons name="settings-outline" size={22} color="#fff" />
+          </TouchableOpacity>
+          <TouchableOpacity style={s.headerIcon} onPress={handleSignOut}>
+            <Ionicons name="log-out-outline" size={22} color="#ef4444" />
           </TouchableOpacity>
         </View>
       </View>
@@ -207,7 +231,6 @@ const s = StyleSheet.create({
   welcomeTitle: { fontSize: 26, fontWeight: "800", color: "#fff", marginBottom: 4 },
   welcomeSub:   { fontSize: 14, color: "#9ca3af", marginBottom: 20 },
 
-  // Turno card
   turnoCard: {
     backgroundColor: "#3b82f6",
     borderRadius: 16,
@@ -237,7 +260,6 @@ const s = StyleSheet.create({
   sectionTitle: { fontSize: 18, fontWeight: "700", color: "#fff", marginBottom: 12 },
   seeAll:       { fontSize: 13, color: "#60a5fa" },
 
-  // Quick access grid
   grid: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -263,7 +285,6 @@ const s = StyleSheet.create({
   },
   gridLabel: { fontSize: 15, fontWeight: "600", color: "#f9fafb" },
 
-  // Patient cards
   patientCard: {
     backgroundColor: "#1e2f45",
     borderRadius: 14,
@@ -280,7 +301,6 @@ const s = StyleSheet.create({
   patientCondicion: { fontSize: 13, fontWeight: "600", marginTop: 2 },
   patientSub:       { fontSize: 12, color: "#6b7280", marginTop: 2 },
 
-  // Activity cards
   actCard: {
     backgroundColor: "#1e2f45",
     borderRadius: 14,
