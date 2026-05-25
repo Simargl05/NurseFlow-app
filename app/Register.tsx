@@ -185,7 +185,7 @@ export default function RegisterScreen() {
               ¿Ya tienes cuenta?{" "}
               <Text
                 style={styles.loginLink}
-                onPress={() => router.replace("/login")}
+                onPress={() => router.replace("/Login")}
               >
                 Ingresar
               </Text>
