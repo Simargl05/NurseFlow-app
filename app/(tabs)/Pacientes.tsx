@@ -1,20 +1,28 @@
-import { useState } from "react";
 import {
+  addDoc,
+  collection, getDocs,
+  query,
+  serverTimestamp,
+  where,
+} from 'firebase/firestore';
+import React, { useEffect, useState } from 'react';
+import {
+  ActivityIndicator, Alert,
   FlatList,
-  Modal,
-  SafeAreaView,
-  ScrollView,
+  Modal, ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
-  View
-} from "react-native";
+  View,
+} from 'react-native';
+import { db } from '../lib/firebase';
 
-// ─── Types ─────────────────────────────────────────────────────────────────────
+// ─── Types ────────────────────────────────────────────────────────────────────
 
-type EstadoSemaforo = "verde" | "amarillo" | "rojo";
+type EstadoSemaforo = 'verde' | 'amarillo' | 'rojo';
 
-type Paciente = {
+export type Paciente = {
   id: string;
   nombre: string;
   apellido: string;
@@ -29,342 +37,628 @@ type Paciente = {
   activo: boolean;
 };
 
-// ─── Mock data ─────────────────────────────────────────────────────────────────
-
-const MOCK_PROFILES: Record<string, string> = {
-  "m1": "Dr. Roberto Salinas",
-  "m2": "Dra. Lucía Herrera",
-  "e1": "Enf. Carla Vega",
-  "e2": "Enf. Marco Torres",
+type Profile = {
+  id: string;
+  nombre: string;
+  apellido: string;
+  rol: string;
 };
 
-const MOCK_PACIENTES: Paciente[] = [
-  {
-    id: "1", nombre: "Ana", apellido: "Martínez", sexo: "Femenino",
-    fecha_ingreso: "2025-05-01", condicion: "Neumonía bilateral",
-    piso: "2", habitacion_id: "201", medico_id: "m1", enfermero_id: "e1",
-    estado: "rojo", activo: true,
-  },
-  {
-    id: "2", nombre: "Carlos", apellido: "López", sexo: "Masculino",
-    fecha_ingreso: "2025-05-10", condicion: "Fractura de fémur",
-    piso: "3", habitacion_id: "305", medico_id: "m2", enfermero_id: "e2",
-    estado: "amarillo", activo: true,
-  },
-  {
-    id: "3", nombre: "María", apellido: "García", sexo: "Femenino",
-    fecha_ingreso: "2025-05-15", condicion: "Post-operatorio apendicectomía",
-    piso: "1", habitacion_id: "102", medico_id: "m1", enfermero_id: "e1",
-    estado: "verde", activo: true,
-  },
-  {
-    id: "4", nombre: "Jorge", apellido: "Ramírez", sexo: "Masculino",
-    fecha_ingreso: "2025-05-18", condicion: undefined,
-    piso: "2", habitacion_id: null, medico_id: null, enfermero_id: "e2",
-    estado: "verde", activo: true,
-  },
-];
-
-// ─── Config ────────────────────────────────────────────────────────────────────
-
-const SEMAFORO_CONFIG: Record<EstadoSemaforo, { label: string; color: string; bg: string; ring: string }> = {
-  verde:    { label: "Estable",    color: "#16a34a", bg: "#dcfce7", ring: "#86efac" },
-  amarillo: { label: "Precaución", color: "#d97706", bg: "#fef3c7", ring: "#fcd34d" },
-  rojo:     { label: "Crítico",    color: "#dc2626", bg: "#fee2e2", ring: "#fca5a5" },
+type NuevoPaciente = {
+  nombre: string;
+  apellido: string;
+  condicion: string;
+  piso: string;
+  habitacion_id: string;
+  fecha_ingreso: string;
+  estado: EstadoSemaforo;
+  sexo: string;
+  medico_id: string;
+  enfermero_id: string;
 };
 
-// ─── Helpers ───────────────────────────────────────────────────────────────────
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const SEMAFORO_CONFIG: Record<
+  EstadoSemaforo,
+  { label: string; color: string; bg: string }
+> = {
+  verde:    { label: 'Estable',    color: '#16a34a', bg: '#dcfce7' },
+  amarillo: { label: 'Precaución', color: '#d97706', bg: '#fef3c7' },
+  rojo:     { label: 'Crítico',    color: '#dc2626', bg: '#fee2e2' },
+};
+
+const ESTADO_OPTIONS: EstadoSemaforo[] = ['verde', 'amarillo', 'rojo'];
+const SEXO_OPTIONS = ['Masculino', 'Femenino', 'Otro'];
+
+const NUEVO_PACIENTE_INITIAL: NuevoPaciente = {
+  nombre: '', apellido: '', condicion: '', piso: '',
+  habitacion_id: '', fecha_ingreso: '', estado: 'verde',
+  sexo: '', medico_id: '', enfermero_id: '',
+};
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function formatDate(dateStr?: string | null): string {
-  if (!dateStr) return "—";
-  const parts = dateStr.split("-");
-  if (parts.length !== 3) return dateStr;
-  return `${parts[2]}/${parts[1]}/${parts[0]}`;
+  if (!dateStr) return '—';
+  const [y, m, d] = dateStr.split('-');
+  if (!y || !m || !d) return dateStr;
+  return `${d}/${m}/${y}`;
 }
 
-// ─── Traffic light ─────────────────────────────────────────────────────────────
+// ─── Sub-components ───────────────────────────────────────────────────────────
 
 function TrafficLight({ estado }: { estado: EstadoSemaforo }) {
-  const order: EstadoSemaforo[] = ["rojo", "amarillo", "verde"];
   return (
-    <View style={tl.column}>
-      {order.map((color) => {
-        const active = estado === color;
-        const cfg = SEMAFORO_CONFIG[color];
-        return (
-          <View key={color} style={tl.dot}>
-            <View
-              style={[
-                tl.circle,
-                { backgroundColor: active ? cfg.color : "#d1d5db" },
-                active && { shadowColor: cfg.color, shadowOpacity: 0.7, shadowRadius: 6, elevation: 4 },
-              ]}
-            />
-          </View>
-        );
-      })}
+    <View style={styles.trafficContainer}>
+      {(['rojo', 'amarillo', 'verde'] as EstadoSemaforo[]).map(color => (
+        <View key={color} style={styles.lightWrapper}>
+          <View
+            style={[
+              styles.light,
+              {
+                backgroundColor:
+                  estado === color
+                    ? SEMAFORO_CONFIG[color].color
+                    : '#d1d5db',
+              },
+            ]}
+          />
+        </View>
+      ))}
     </View>
   );
 }
 
-const tl = StyleSheet.create({
-  column: { flexDirection: "column", alignItems: "center", gap: 5, paddingVertical: 4 },
-  dot:    { width: 20, height: 20, alignItems: "center", justifyContent: "center" },
-  circle: { width: 14, height: 14, borderRadius: 7 },
-});
-
-// ─── Patient card ──────────────────────────────────────────────────────────────
-
-function PatientCard({ paciente, onPress }: { paciente: Paciente; onPress: () => void }) {
-  const estado = paciente.estado ?? "verde";
+function StatBadge({
+  count, label, estado,
+}: { count: number; label: string; estado: EstadoSemaforo }) {
   const cfg = SEMAFORO_CONFIG[estado];
-  const medico = paciente.medico_id ? MOCK_PROFILES[paciente.medico_id] : null;
-  const enfermero = paciente.enfermero_id ? MOCK_PROFILES[paciente.enfermero_id] : null;
-
   return (
-    <TouchableOpacity style={styles.card} onPress={onPress} activeOpacity={0.8}>
-      <TrafficLight estado={estado} />
-
-      <View style={styles.cardBody}>
-        <View style={styles.cardHeader}>
-          <Text style={styles.cardName} numberOfLines={1}>
-            {paciente.nombre} {paciente.apellido}
-          </Text>
-          <View style={[styles.stateBadge, { backgroundColor: cfg.bg }]}>
-            <Text style={[styles.stateBadgeText, { color: cfg.color }]}>{cfg.label}</Text>
-          </View>
-        </View>
-
-        <Text style={styles.cardCondicion} numberOfLines={1}>
-          {paciente.condicion ?? "Sin diagnóstico registrado"}
-        </Text>
-
-        <View style={styles.metaRow}>
-          {paciente.piso && <MetaChip icon="🏢" text={`Piso ${paciente.piso}`} />}
-          <MetaChip icon="🛏" text={`Hab. ${paciente.habitacion_id ?? "—"}`} />
-          <MetaChip icon="🩺" text={medico ?? "Sin médico"} />
-          <MetaChip icon="👤" text={enfermero ?? "Sin enfermero"} />
-          <MetaChip icon="📅" text={`Ingreso: ${formatDate(paciente.fecha_ingreso)}`} />
-        </View>
-      </View>
-
-      <Text style={styles.cardArrow}>›</Text>
-    </TouchableOpacity>
-  );
-}
-
-function MetaChip({ icon, text }: { icon: string; text: string }) {
-  return (
-    <View style={styles.metaChip}>
-      <Text style={styles.metaIcon}>{icon}</Text>
-      <Text style={styles.metaText} numberOfLines={1}>{text}</Text>
+    <View style={[styles.statBox, { borderLeftColor: cfg.color }]}>
+      <Text style={styles.statNum}>{count}</Text>
+      <Text style={styles.statLabel}>{label}</Text>
     </View>
   );
 }
 
-// ─── Detail modal ──────────────────────────────────────────────────────────────
+// ─── Main Component ───────────────────────────────────────────────────────────
 
-function DetailModal({
-  paciente,
-  onClose,
-}: {
-  paciente: Paciente;
-  onClose: () => void;
-}) {
-  const estado = paciente.estado ?? "verde";
-  const cfg = SEMAFORO_CONFIG[estado];
-  const medico = paciente.medico_id ? MOCK_PROFILES[paciente.medico_id] ?? "—" : "—";
-  const enfermero = paciente.enfermero_id ? MOCK_PROFILES[paciente.enfermero_id] ?? "—" : "—";
-
-  return (
-    <Modal visible animationType="slide" transparent onRequestClose={onClose}>
-      <View style={modal.overlay}>
-        <TouchableOpacity style={StyleSheet.absoluteFill} onPress={onClose} />
-        <View style={modal.sheet}>
-          {/* Header */}
-          <View style={[modal.header, { backgroundColor: cfg.bg, borderBottomColor: cfg.ring }]}>
-            <View style={{ flex: 1 }}>
-              <Text style={modal.headerName}>
-                {paciente.nombre} {paciente.apellido}
-              </Text>
-              <View style={[modal.headerBadge, { backgroundColor: cfg.color }]}>
-                <Text style={modal.headerBadgeText}>{cfg.label}</Text>
-              </View>
-            </View>
-            <TrafficLight estado={estado} />
-          </View>
-
-          {/* Detail rows */}
-          <ScrollView style={{ paddingHorizontal: 20, paddingTop: 16 }}>
-            <DetailRow icon="🧪" label="Condición / Patología" value={paciente.condicion ?? "Sin diagnóstico"} />
-            <DetailRow icon="📅" label="Fecha de ingreso"      value={formatDate(paciente.fecha_ingreso)} />
-            <DetailRow icon="🏢" label="Piso"                  value={paciente.piso ?? "—"} />
-            <DetailRow icon="🛏" label="Habitación"            value={paciente.habitacion_id ?? "—"} />
-            <DetailRow icon="🩺" label="Médico asignado"       value={medico} />
-            <DetailRow icon="👤" label="Enfermero/a asignado/a" value={enfermero} />
-            {paciente.sexo && (
-              <DetailRow icon="⚥" label="Sexo" value={paciente.sexo} />
-            )}
-            <View style={{ height: 20 }} />
-          </ScrollView>
-
-          {/* Close button */}
-          <View style={{ padding: 20 }}>
-            <TouchableOpacity style={modal.closeBtn} onPress={onClose} activeOpacity={0.85}>
-              <Text style={modal.closeBtnText}>Cerrar</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </View>
-    </Modal>
-  );
-}
-
-function DetailRow({ icon, label, value }: { icon: string; label: string; value: string }) {
-  return (
-    <View style={dr.row}>
-      <Text style={dr.icon}>{icon}</Text>
-      <View>
-        <Text style={dr.label}>{label}</Text>
-        <Text style={dr.value}>{value}</Text>
-      </View>
-    </View>
-  );
-}
-
-const dr = StyleSheet.create({
-  row:   { flexDirection: "row", alignItems: "flex-start", gap: 12, marginBottom: 14 },
-  icon:  { fontSize: 16, marginTop: 2 },
-  label: { fontSize: 10, color: "#9ca3af", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 2 },
-  value: { fontSize: 14, fontWeight: "500", color: "#1f2937" },
-});
-
-const modal = StyleSheet.create({
-  overlay:        { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.4)" },
-  sheet:          { backgroundColor: "#fff", borderTopLeftRadius: 20, borderTopRightRadius: 20, overflow: "hidden", maxHeight: "85%" },
-  header:         { flexDirection: "row", alignItems: "center", paddingHorizontal: 20, paddingVertical: 16, borderBottomWidth: 2 },
-  headerName:     { fontSize: 17, fontWeight: "700", color: "#1f2937", marginBottom: 4 },
-  headerBadge:    { alignSelf: "flex-start", paddingHorizontal: 8, paddingVertical: 2, borderRadius: 20 },
-  headerBadgeText:{ fontSize: 11, fontWeight: "600", color: "#fff" },
-  closeBtn:       { backgroundColor: "#1a3a5c", borderRadius: 12, paddingVertical: 13, alignItems: "center" },
-  closeBtnText:   { color: "#fff", fontSize: 15, fontWeight: "600" },
-});
-
-// ─── Main screen ───────────────────────────────────────────────────────────────
-
-export default function PacientesScreen() {
+export default function AdminPacientesPage() {
+  const [pacientes, setPacientes]     = useState<Paciente[]>([]);
+  const [profileMap, setProfileMap]   = useState<Record<string, string>>({});
+  const [profiles, setProfiles]       = useState<Profile[]>([]);
+  const [loading, setLoading]         = useState(true);
+  const [saving, setSaving]           = useState(false);
   const [seleccionado, setSeleccionado] = useState<Paciente | null>(null);
+  const [showAdd, setShowAdd]         = useState(false);
+  const [nuevo, setNuevo]             = useState<NuevoPaciente>(NUEVO_PACIENTE_INITIAL);
 
-  const totalVerde    = MOCK_PACIENTES.filter((p) => (p.estado ?? "verde") === "verde").length;
-  const totalAmarillo = MOCK_PACIENTES.filter((p) => p.estado === "amarillo").length;
-  const totalRojo     = MOCK_PACIENTES.filter((p) => p.estado === "rojo").length;
+  useEffect(() => { fetchData(); }, []);
+
+  // ── Data fetching ──────────────────────────────────────────────────────────
+
+  async function fetchData() {
+    setLoading(true);
+    try {
+      // Admin: fetch ALL active patients (no enfermero_id filter)
+      const pacientesSnap = await getDocs(
+        query(collection(db, 'Pacientes'), where('activo', '==', true))
+      );
+      const allPacientes = pacientesSnap.docs.map(
+        d => ({ id: d.id, ...d.data() } as Paciente)
+      );
+
+      const profSnap = await getDocs(collection(db, 'profiles'));
+      const pMap: Record<string, string> = {};
+      const profList: Profile[] = [];
+      profSnap.docs.forEach(d => {
+        const p = d.data() as Profile;
+        pMap[d.id] = `${p.nombre} ${p.apellido}`;
+        profList.push({ id: d.id, ...p });
+      });
+
+      setPacientes(allPacientes);
+      setProfileMap(pMap);
+      setProfiles(profList);
+    } catch (err) {
+      console.error('Error cargando pacientes:', err);
+      Alert.alert('Error', 'No se pudieron cargar los pacientes.');
+    }
+    setLoading(false);
+  }
+
+  // ── Add patient ────────────────────────────────────────────────────────────
+
+  async function handleAddPaciente() {
+    if (!nuevo.nombre.trim() || !nuevo.apellido.trim()) {
+      Alert.alert('Campos requeridos', 'Nombre y apellido son obligatorios.');
+      return;
+    }
+    setSaving(true);
+    try {
+      await addDoc(collection(db, 'Pacientes'), {
+        nombre:        nuevo.nombre.trim(),
+        apellido:      nuevo.apellido.trim(),
+        condicion:     nuevo.condicion.trim() || null,
+        piso:          nuevo.piso.trim() || null,
+        habitacion_id: nuevo.habitacion_id.trim() || null,
+        fecha_ingreso: nuevo.fecha_ingreso || null,
+        estado:        nuevo.estado,
+        sexo:          nuevo.sexo || null,
+        medico_id:     nuevo.medico_id || null,
+        enfermero_id:  nuevo.enfermero_id || null,
+        activo:        true,
+        created_at:    serverTimestamp(),
+      });
+      setShowAdd(false);
+      setNuevo(NUEVO_PACIENTE_INITIAL);
+      await fetchData();
+    } catch (err) {
+      console.error('Error guardando paciente:', err);
+      Alert.alert('Error', 'No se pudo guardar el paciente.');
+    }
+    setSaving(false);
+  }
+
+  // ── Derived counts ─────────────────────────────────────────────────────────
+
+  const counts = {
+    verde:    pacientes.filter(p => (p.estado ?? 'verde') === 'verde').length,
+    amarillo: pacientes.filter(p => p.estado === 'amarillo').length,
+    rojo:     pacientes.filter(p => p.estado === 'rojo').length,
+  };
+
+  const medicos    = profiles.filter(p => p.rol === 'medico');
+  const enfermeros = profiles.filter(p => p.rol === 'enfermero');
+
+  // ── Loading ────────────────────────────────────────────────────────────────
+
+  if (loading) {
+    return (
+      <View style={styles.center}>
+        <ActivityIndicator size="large" color="#1e3a5f" />
+        <Text style={styles.loadingText}>Cargando pacientes…</Text>
+      </View>
+    );
+  }
+
+  // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <FlatList
-        data={MOCK_PACIENTES}
-        keyExtractor={(item) => item.id}
-        contentContainerStyle={styles.scroll}
-        ListHeaderComponent={
-          <>
-            {/* Legend + actions */}
-            <View style={styles.topBar}>
-              <View style={styles.legend}>
-                {(["verde", "amarillo", "rojo"] as EstadoSemaforo[]).map((e) => (
-                  <View key={e} style={styles.legendItem}>
-                    <View style={[styles.legendDot, { backgroundColor: SEMAFORO_CONFIG[e].color }]} />
-                    <Text style={styles.legendText}>{SEMAFORO_CONFIG[e].label}</Text>
+    <View style={styles.container}>
+
+      {/* Stats row */}
+      <View style={styles.statsRow}>
+        <StatBadge count={counts.verde}    label="Estables"   estado="verde"    />
+        <StatBadge count={counts.amarillo} label="Precaución" estado="amarillo" />
+        <StatBadge count={counts.rojo}     label="Críticos"   estado="rojo"     />
+      </View>
+
+      {/* Add button */}
+      <TouchableOpacity style={styles.addBtn} onPress={() => setShowAdd(true)}>
+        <Text style={styles.addBtnText}>+ Agregar paciente</Text>
+      </TouchableOpacity>
+
+      {/* Patient list */}
+      {pacientes.length === 0 ? (
+        <View style={styles.emptyBox}>
+          <Text style={styles.emptyText}>No hay pacientes registrados aún.</Text>
+        </View>
+      ) : (
+        <FlatList
+          data={pacientes}
+          keyExtractor={item => item.id}
+          contentContainerStyle={styles.listContent}
+          renderItem={({ item }) => {
+            const estado = item.estado ?? 'verde';
+            const cfg    = SEMAFORO_CONFIG[estado];
+            const medico    = item.medico_id    ? profileMap[item.medico_id]    : null;
+            const enfermero = item.enfermero_id ? profileMap[item.enfermero_id] : null;
+
+            return (
+              <TouchableOpacity
+                style={[styles.card, { borderLeftColor: cfg.color }]}
+                onPress={() => setSeleccionado(item)}
+                activeOpacity={0.85}
+              >
+                <TrafficLight estado={estado} />
+                <View style={styles.cardContent}>
+                  <View style={styles.cardHeader}>
+                    <Text style={styles.cardTitle} numberOfLines={1}>
+                      {item.nombre} {item.apellido}
+                    </Text>
+                    <Text style={[styles.badge, { backgroundColor: cfg.bg, color: cfg.color }]}>
+                      {cfg.label}
+                    </Text>
+                  </View>
+                  <Text style={styles.condicion} numberOfLines={1}>
+                    {item.condicion || 'Sin diagnóstico registrado'}
+                  </Text>
+                  <View style={styles.chipsRow}>
+                    <Text style={styles.chip}>Piso {item.piso ?? '—'}</Text>
+                    <Text style={styles.chip}>Hab. {item.habitacion_id ?? '—'}</Text>
+                    {medico    && <Text style={styles.chip}>{medico}</Text>}
+                    {enfermero && <Text style={styles.chip}>{enfermero}</Text>}
+                    <Text style={styles.chip}>Ingreso: {formatDate(item.fecha_ingreso)}</Text>
+                  </View>
+                </View>
+              </TouchableOpacity>
+            );
+          }}
+        />
+      )}
+
+      {/* ── Detail Modal ─────────────────────────────────────────────────── */}
+      <Modal visible={!!seleccionado} transparent animationType="slide">
+        {seleccionado && (
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalBox}>
+              <View style={styles.modalHandle} />
+              <ScrollView contentContainerStyle={styles.modalScroll}>
+                {/* Header */}
+                <View style={styles.modalHeaderBar}>
+                  <Text style={styles.modalName}>
+                    {seleccionado.nombre} {seleccionado.apellido}
+                  </Text>
+                  <Text style={[
+                    styles.modalStatus,
+                    { color: SEMAFORO_CONFIG[seleccionado.estado ?? 'verde'].color },
+                  ]}>
+                    ● {SEMAFORO_CONFIG[seleccionado.estado ?? 'verde'].label}
+                  </Text>
+                </View>
+
+                {/* Rows */}
+                {[
+                  ['Condición',      seleccionado.condicion ?? '—'],
+                  ['Fecha ingreso',  formatDate(seleccionado.fecha_ingreso)],
+                  ['Piso',           seleccionado.piso ?? '—'],
+                  ['Habitación',     seleccionado.habitacion_id ?? '—'],
+                  ['Médico',         seleccionado.medico_id ? profileMap[seleccionado.medico_id] ?? '—' : '—'],
+                  ['Enfermero',      seleccionado.enfermero_id ? profileMap[seleccionado.enfermero_id] ?? '—' : '—'],
+                  ['Sexo',           seleccionado.sexo ?? '—'],
+                ].map(([key, val]) => (
+                  <View key={key} style={styles.detailRow}>
+                    <Text style={styles.detailKey}>{key}</Text>
+                    <Text style={styles.detailVal}>{val}</Text>
                   </View>
                 ))}
-              </View>
-              <TouchableOpacity
-                style={styles.addBtn}
-                onPress={() => alert("Agregar paciente — próximamente")}
-              >
-                <Text style={styles.addBtnText}>+ Agregar</Text>
+              </ScrollView>
+              <TouchableOpacity style={styles.closeBtn} onPress={() => setSeleccionado(null)}>
+                <Text style={styles.closeBtnText}>Cerrar</Text>
               </TouchableOpacity>
             </View>
-
-            {/* Stats */}
-            <View style={styles.statsRow}>
-              <StatPill label="Estables"   value={totalVerde}    color="#16a34a" bg="#dcfce7" />
-              <StatPill label="Precaución" value={totalAmarillo} color="#d97706" bg="#fef3c7" />
-              <StatPill label="Críticos"   value={totalRojo}     color="#dc2626" bg="#fee2e2" />
-            </View>
-          </>
-        }
-        renderItem={({ item }) => (
-          <PatientCard paciente={item} onPress={() => setSeleccionado(item)} />
+          </View>
         )}
-        ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
-      />
+      </Modal>
 
-      {seleccionado && (
-        <DetailModal paciente={seleccionado} onClose={() => setSeleccionado(null)} />
-      )}
-    </SafeAreaView>
-  );
-}
+      {/* ── Add Patient Modal ────────────────────────────────────────────── */}
+      <Modal visible={showAdd} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalBox}>
+            <View style={styles.modalHandle} />
+            <ScrollView contentContainerStyle={styles.modalScroll} keyboardShouldPersistTaps="handled">
+              <View style={styles.modalHeaderBar}>
+                <Text style={styles.modalName}>Agregar paciente</Text>
+                <Text style={styles.modalSubtitle}>Nuevo registro en piso</Text>
+              </View>
 
-function StatPill({ label, value, color, bg }: { label: string; value: number; color: string; bg: string }) {
-  return (
-    <View style={[styles.statPill, { backgroundColor: bg }]}>
-      <Text style={[styles.statPillValue, { color }]}>{value}</Text>
-      <Text style={[styles.statPillLabel, { color }]}>{label}</Text>
+              {/* Name row */}
+              <View style={styles.formRow}>
+                <View style={styles.formGroupHalf}>
+                  <Text style={styles.formLabel}>Nombre *</Text>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Nombre"
+                    value={nuevo.nombre}
+                    onChangeText={t => setNuevo(p => ({ ...p, nombre: t }))}
+                  />
+                </View>
+                <View style={styles.formGroupHalf}>
+                  <Text style={styles.formLabel}>Apellido *</Text>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Apellido"
+                    value={nuevo.apellido}
+                    onChangeText={t => setNuevo(p => ({ ...p, apellido: t }))}
+                  />
+                </View>
+              </View>
+
+              {/* Condicion */}
+              <View style={styles.formGroup}>
+                <Text style={styles.formLabel}>Condición / Diagnóstico</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Ej. Neumonía leve"
+                  value={nuevo.condicion}
+                  onChangeText={t => setNuevo(p => ({ ...p, condicion: t }))}
+                />
+              </View>
+
+              {/* Piso / Habitacion */}
+              <View style={styles.formRow}>
+                <View style={styles.formGroupHalf}>
+                  <Text style={styles.formLabel}>Piso</Text>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Ej. 3"
+                    keyboardType="numeric"
+                    value={nuevo.piso}
+                    onChangeText={t => setNuevo(p => ({ ...p, piso: t }))}
+                  />
+                </View>
+                <View style={styles.formGroupHalf}>
+                  <Text style={styles.formLabel}>Habitación</Text>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Ej. 302"
+                    value={nuevo.habitacion_id}
+                    onChangeText={t => setNuevo(p => ({ ...p, habitacion_id: t }))}
+                  />
+                </View>
+              </View>
+
+              {/* Fecha ingreso */}
+              <View style={styles.formGroup}>
+                <Text style={styles.formLabel}>Fecha de ingreso (YYYY-MM-DD)</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="2024-06-15"
+                  value={nuevo.fecha_ingreso}
+                  onChangeText={t => setNuevo(p => ({ ...p, fecha_ingreso: t }))}
+                />
+              </View>
+
+              {/* Estado selector */}
+              <View style={styles.formGroup}>
+                <Text style={styles.formLabel}>Estado</Text>
+                <View style={styles.selectorRow}>
+                  {ESTADO_OPTIONS.map(est => {
+                    const cfg = SEMAFORO_CONFIG[est];
+                    const active = nuevo.estado === est;
+                    return (
+                      <TouchableOpacity
+                        key={est}
+                        style={[
+                          styles.selectorChip,
+                          { borderColor: cfg.color },
+                          active && { backgroundColor: cfg.bg },
+                        ]}
+                        onPress={() => setNuevo(p => ({ ...p, estado: est }))}
+                      >
+                        <Text style={[styles.selectorText, { color: cfg.color }]}>
+                          {cfg.label}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+
+              {/* Sexo selector */}
+              <View style={styles.formGroup}>
+                <Text style={styles.formLabel}>Sexo</Text>
+                <View style={styles.selectorRow}>
+                  {SEXO_OPTIONS.map(s => (
+                    <TouchableOpacity
+                      key={s}
+                      style={[
+                        styles.selectorChip,
+                        { borderColor: '#cbd5e1' },
+                        nuevo.sexo === s && { backgroundColor: '#e0f2fe', borderColor: '#3b82f6' },
+                      ]}
+                      onPress={() => setNuevo(p => ({ ...p, sexo: s }))}
+                    >
+                      <Text style={[
+                        styles.selectorText,
+                        { color: nuevo.sexo === s ? '#3b82f6' : '#64748b' },
+                      ]}>
+                        {s}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+
+              {/* Medico picker */}
+              {medicos.length > 0 && (
+                <View style={styles.formGroup}>
+                  <Text style={styles.formLabel}>Médico asignado</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                    <View style={styles.selectorRow}>
+                      {medicos.map(m => (
+                        <TouchableOpacity
+                          key={m.id}
+                          style={[
+                            styles.selectorChip,
+                            { borderColor: '#cbd5e1' },
+                            nuevo.medico_id === m.id && { backgroundColor: '#e0f2fe', borderColor: '#3b82f6' },
+                          ]}
+                          onPress={() => setNuevo(p => ({ ...p, medico_id: p.medico_id === m.id ? '' : m.id }))}
+                        >
+                          <Text style={[
+                            styles.selectorText,
+                            { color: nuevo.medico_id === m.id ? '#3b82f6' : '#64748b' },
+                          ]}>
+                            {m.nombre} {m.apellido}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </ScrollView>
+                </View>
+              )}
+
+              {/* Enfermero picker */}
+              {enfermeros.length > 0 && (
+                <View style={styles.formGroup}>
+                  <Text style={styles.formLabel}>Enfermero asignado</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                    <View style={styles.selectorRow}>
+                      {enfermeros.map(e => (
+                        <TouchableOpacity
+                          key={e.id}
+                          style={[
+                            styles.selectorChip,
+                            { borderColor: '#cbd5e1' },
+                            nuevo.enfermero_id === e.id && { backgroundColor: '#e0f2fe', borderColor: '#3b82f6' },
+                          ]}
+                          onPress={() => setNuevo(p => ({ ...p, enfermero_id: p.enfermero_id === e.id ? '' : e.id }))}
+                        >
+                          <Text style={[
+                            styles.selectorText,
+                            { color: nuevo.enfermero_id === e.id ? '#3b82f6' : '#64748b' },
+                          ]}>
+                            {e.nombre} {e.apellido}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </ScrollView>
+                </View>
+              )}
+
+              {/* Actions */}
+              <TouchableOpacity
+                style={[styles.saveBtn, saving && { opacity: 0.6 }]}
+                onPress={handleAddPaciente}
+                disabled={saving}
+              >
+                {saving
+                  ? <ActivityIndicator color="#fff" />
+                  : <Text style={styles.saveBtnText}>Guardar paciente</Text>
+                }
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.cancelBtn}
+                onPress={() => { setShowAdd(false); setNuevo(NUEVO_PACIENTE_INITIAL); }}
+              >
+                <Text style={styles.cancelBtnText}>Cancelar</Text>
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
 
-// ─── Styles ────────────────────────────────────────────────────────────────────
+// ─── Styles ───────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: "#a8d5e2" },
-  scroll:   { padding: 16, gap: 10 },
+  container:   { flex: 1, backgroundColor: '#f1f5f9' },
+  center:      { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 12 },
+  loadingText: { fontSize: 14, color: '#64748b' },
 
-  topBar: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    backgroundColor: "rgba(255,255,255,0.75)",
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    marginBottom: 2,
+  // Stats
+  statsRow: { flexDirection: 'row', gap: 8, padding: 12 },
+  statBox:  {
+    flex: 1, backgroundColor: '#fff', borderRadius: 10, padding: 10,
+    alignItems: 'center', borderLeftWidth: 3,
+    elevation: 1, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 4,
   },
-  legend:     { flexDirection: "row", gap: 12 },
-  legendItem: { flexDirection: "row", alignItems: "center", gap: 5 },
-  legendDot:  { width: 9, height: 9, borderRadius: 5 },
-  legendText: { fontSize: 11, color: "#4b5563" },
-  addBtn:     { backgroundColor: "#1a3a5c", borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6 },
-  addBtnText: { color: "#fff", fontSize: 12, fontWeight: "600" },
+  statNum:   { fontFamily: 'monospace', fontSize: 18, fontWeight: '700', color: '#1e293b' },
+  statLabel: { fontSize: 10, color: '#64748b', marginTop: 2 },
 
-  statsRow:       { flexDirection: "row", gap: 8, marginBottom: 4 },
-  statPill:       { flex: 1, borderRadius: 10, paddingVertical: 10, alignItems: "center" },
-  statPillValue:  { fontSize: 20, fontWeight: "700" },
-  statPillLabel:  { fontSize: 10, fontWeight: "500", marginTop: 1 },
+  // Add button
+  addBtn: {
+    marginHorizontal: 12, marginBottom: 4, backgroundColor: '#1e3a5f',
+    borderRadius: 10, padding: 12, alignItems: 'center',
+  },
+  addBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
 
+  // List
+  listContent: { padding: 12, paddingTop: 8 },
+  emptyBox:   { margin: 24, padding: 20, backgroundColor: '#fff', borderRadius: 10, alignItems: 'center' },
+  emptyText:  { color: '#64748b' },
+
+  // Card
   card: {
-    backgroundColor: "#fff",
-    borderRadius: 14,
-    padding: 14,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.08,
-    shadowRadius: 4,
-    elevation: 2,
+    flexDirection: 'row', backgroundColor: '#fff', padding: 12,
+    borderRadius: 12, marginBottom: 10, elevation: 2,
+    shadowColor: '#000', shadowOpacity: 0.07, shadowRadius: 6,
+    borderLeftWidth: 4,
   },
-  cardBody:       { flex: 1 },
-  cardHeader:     { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
-  cardName:       { fontSize: 15, fontWeight: "700", color: "#1f2937", flex: 1 },
-  stateBadge:     { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 20 },
-  stateBadgeText: { fontSize: 11, fontWeight: "600" },
-  cardCondicion:  { fontSize: 12, color: "#6b7280", fontStyle: "italic", marginTop: 2 },
-  metaRow:        { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 8 },
-  metaChip:       { flexDirection: "row", alignItems: "center", gap: 3 },
-  metaIcon:       { fontSize: 11 },
-  metaText:       { fontSize: 11, color: "#6b7280" },
-  cardArrow:      { fontSize: 20, color: "#d1d5db" },
+  cardContent: { flex: 1, marginLeft: 8 },
+  cardHeader:  { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  cardTitle:   { fontSize: 15, fontWeight: '700', color: '#1e293b', flex: 1, marginRight: 6 },
+  badge: {
+    fontSize: 10, fontWeight: '600', paddingVertical: 2, paddingHorizontal: 8,
+    borderRadius: 20,
+  },
+  condicion: { fontSize: 12, color: '#475569', marginTop: 3 },
+  chipsRow:  { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 6 },
+  chip: {
+    backgroundColor: '#f1f5f9', borderRadius: 6,
+    paddingVertical: 2, paddingHorizontal: 7, fontSize: 10, color: '#64748b',
+  },
+
+  // Traffic light
+  trafficContainer: { flexDirection: 'column', gap: 4, justifyContent: 'center', alignItems: 'center', width: 14 },
+  lightWrapper:     {},
+  light:            { width: 10, height: 10, borderRadius: 5 },
+
+  // Modal shared
+  modalOverlay: {
+    flex: 1, backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalBox: {
+    backgroundColor: '#fff', borderTopLeftRadius: 24, borderTopRightRadius: 24,
+    maxHeight: '90%', paddingBottom: 24,
+  },
+  modalHandle: {
+    width: 40, height: 4, backgroundColor: '#e2e8f0',
+    borderRadius: 2, alignSelf: 'center', marginTop: 12, marginBottom: 4,
+  },
+  modalScroll:     { paddingBottom: 8 },
+  modalHeaderBar:  { padding: 16, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' },
+  modalName:       { fontSize: 18, fontWeight: '700', color: '#1e293b' },
+  modalStatus:     { fontSize: 13, fontWeight: '600', marginTop: 4 },
+  modalSubtitle:   { fontSize: 12, color: '#64748b', marginTop: 3 },
+
+  // Detail rows
+  detailRow: {
+    flexDirection: 'row', justifyContent: 'space-between',
+    paddingVertical: 10, marginHorizontal: 20,
+    borderBottomWidth: 1, borderBottomColor: '#f8fafc',
+  },
+  detailKey: { fontSize: 12, color: '#64748b' },
+  detailVal: { fontSize: 12, fontWeight: '600', color: '#1e293b', textAlign: 'right', flex: 1, marginLeft: 12 },
+
+  // Close / cancel
+  closeBtn: {
+    marginHorizontal: 20, marginTop: 16, backgroundColor: '#1e3a5f',
+    borderRadius: 12, padding: 13, alignItems: 'center',
+  },
+  closeBtnText: { color: '#fff', fontWeight: '600', fontSize: 14 },
+
+  // Add form
+  formGroup:     { paddingHorizontal: 20, marginTop: 12 },
+  formRow:       { flexDirection: 'row', gap: 10, paddingHorizontal: 20, marginTop: 12 },
+  formGroupHalf: { flex: 1 },
+  formLabel:     { fontSize: 11, fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 5 },
+  input: {
+    borderWidth: 1.5, borderColor: '#e2e8f0', borderRadius: 10,
+    padding: 10, fontSize: 14, color: '#1e293b', backgroundColor: '#fff',
+  },
+  selectorRow: { flexDirection: 'row', gap: 6, flexWrap: 'wrap' },
+  selectorChip: {
+    borderWidth: 1.5, borderRadius: 20, paddingVertical: 5,
+    paddingHorizontal: 12,
+  },
+  selectorText: { fontSize: 12, fontWeight: '600' },
+  saveBtn: {
+    marginHorizontal: 20, marginTop: 20, backgroundColor: '#3b82f6',
+    borderRadius: 12, padding: 13, alignItems: 'center',
+  },
+  saveBtnText:  { color: '#fff', fontWeight: '700', fontSize: 14 },
+  cancelBtn: {
+    marginHorizontal: 20, marginTop: 8, backgroundColor: '#f1f5f9',
+    borderRadius: 12, padding: 13, alignItems: 'center',
+  },
+  cancelBtnText: { color: '#475569', fontWeight: '600', fontSize: 14 },
 });
