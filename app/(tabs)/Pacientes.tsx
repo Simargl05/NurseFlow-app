@@ -22,6 +22,8 @@ import { db } from '../lib/firebase';
 
 type EstadoSemaforo = 'verde' | 'amarillo' | 'rojo';
 
+type EstadoSemaforo = 'verde' | 'amarillo' | 'rojo';
+
 export type Paciente = {
   id: string;
   nombre: string;
